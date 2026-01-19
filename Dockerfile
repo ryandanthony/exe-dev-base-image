@@ -13,33 +13,24 @@ ARG LAUNCHPAD_BUILD_ARCH
 # Set shell for all RUN commands
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 
-# Install all necessary packages and unminimize Ubuntu
+# Install all necessary packages
 RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirror://mirrors.ubuntu.com/mirrors.txt|' /etc/apt/sources.list && \
-    rm -f /etc/dpkg/dpkg.cfg.d/excludes /etc/dpkg/dpkg.cfg.d/01_nodoc && \
     apt-get update && \
     echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections && \
     echo 'pbuilder pbuilder/mirrorsite string http://archive.ubuntu.com/ubuntu' | debconf-set-selections && \
-    echo 'y' | DEBIAN_FRONTEND=noninteractive unminimize && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y man-db && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --reinstall $(dpkg-query -f '${binary:Package} ' -W) && \
-    mandb -c && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
       ca-certificates wget ripgrep \
       git jq sqlite3 curl vim neovim lsof iproute2 less nginx \
-      make python3-pip python-is-python3 tree net-tools file build-essential \
-      pipx psmisc bsdmainutils sudo socat \
+      make tree net-tools file build-essential \
+      psmisc bsdmainutils sudo socat \
       openssh-server openssh-client \
       iputils-ping socat netcat-openbsd \
       libcap2-bin \
       unzip util-linux rsync \
-      ubuntu-server ubuntu-dev-tools ubuntu-standard \
-      man-db manpages manpages-dev \
+      ubuntu-server ubuntu-standard \
       mitmproxy \
       systemd systemd-sysv \
       atop btop iotop ncdu \
-      golang-go git \
-      libglib2.0-0 libnss3 libx11-6 libxcomposite1 libxdamage1 \
-      libxext6 libxi6 libxrandr2 libgbm1 libgtk-3-0 \
       fonts-noto-color-emoji fonts-symbola \
       docker.io docker-buildx docker-compose-v2 \
       imagemagick ffmpeg \
@@ -49,9 +40,6 @@ RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirror://mirrors.ubuntu.c
     setcap cap_net_raw=+ep /usr/bin/ping && \
     fc-cache -f -v && \
     apt-get clean
-
-# Install uv (fast Python package installer)
-RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
 # Disable and mask unnecessary systemd services to optimize for container environment
 RUN rm /etc/systemd/system/multi-user.target.wants/console-setup.service \
@@ -162,23 +150,9 @@ RUN usermod -l exedev -c "exe.dev user" ubuntu && \
 # Set environment variable to identify this as an exeuntu image
 ENV EXEUNTU=1
 
-# Copy shelley binary (AI assistant/agent)
-# NOTE: This binary needs to be built separately or obtained from the exe.dev project
-COPY shelley /usr/local/bin/shelley
-
-# Make shelley executable and verify it works
-RUN chmod +x /usr/local/bin/shelley && /usr/local/bin/shelley -help
-
-# Copy headless-shell (headless Chrome for automation)
-# NOTE: This is Chrome's headless shell binary
-COPY /headless-shell /headless-shell
-
-# Update PATH to include headless-shell
-ENV PATH=/usr/local/bin:/headless-shell:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-
 # Create necessary directories for exedev user
-RUN mkdir -p /home/exedev /home/exedev/.config/shelley && \
-    chown exedev:exedev /home/exedev /home/exedev/.config /home/exedev/.config/shelley
+RUN mkdir -p /home/exedev /home/exedev/.config && \
+    chown exedev:exedev /home/exedev /home/exedev/.config
 
 # Switch to exedev user
 USER exedev
@@ -208,54 +182,8 @@ COPY motd-snippet.bash /tmp/motd-snippet.bash
 # Add custom MOTD to bashrc
 RUN cat /tmp/motd-snippet.bash >> /home/exedev/.bashrc && rm /tmp/motd-snippet.bash
 
-# Copy systemd service files for shelley
-COPY shelley.socket /etc/systemd/system/shelley.socket
-COPY shelley.service /etc/systemd/system/shelley.service
-
-# Enable shelley systemd socket
-RUN chmod 644 /etc/systemd/system/shelley.socket /etc/systemd/system/shelley.service && \
-    systemctl enable shelley.socket
-
 # Copy init wrapper script
 COPY init-wrapper.sh /usr/local/bin/init
-
-# Install codex (OpenAI's CLI tool)
-# NOTE: This checks for the latest codex release and downloads it
-RUN ARCH=$(uname -m) && \
-    case ${ARCH} in \
-        x86_64) CODEX_ARCH="x86_64-unknown-linux-musl" ;; \
-        aarch64|arm64) CODEX_ARCH="aarch64-unknown-linux-musl" ;; \
-        *) echo "Unsupported architecture: ${ARCH}" && exit 1 ;; \
-    esac && \
-    CODEX_VERSION=$(curl -fsSL https://api.github.com/repos/openai/codex/releases/latest | jq -r '.tag_name') && \
-    curl -fsSL "https://github.com/openai/codex/releases/download/${CODEX_VERSION}/codex-${CODEX_ARCH}.tar.gz" | \
-    tar -xzC /usr/local/bin && \
-    mv "/usr/local/bin/codex-${CODEX_ARCH}" /usr/local/bin/codex && \
-    chmod +x /usr/local/bin/codex
-
-# Create directories for AI assistants
-RUN mkdir -p /home/exedev/.claude /home/exedev/.codex && \
-    chown -R exedev:exedev /home/exedev/.claude /home/exedev/.codex
-
-# Copy AGENTS.md documentation
-COPY AGENTS.md /home/exedev/.config/shelley/AGENTS.md
-
-# Copy AGENTS.md to multiple locations for different AI tools
-RUN cp /home/exedev/.config/shelley/AGENTS.md /home/exedev/.claude/CLAUDE.md && \
-    cp /home/exedev/.config/shelley/AGENTS.md /home/exedev/.codex/AGENTS.md && \
-    chown exedev:exedev /home/exedev/.claude/CLAUDE.md /home/exedev/.codex/AGENTS.md /home/exedev/.config/shelley/AGENTS.md
-
-# Install Claude CLI
-RUN mkdir -p /home/exedev/.local/bin && \
-    ARCH=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/') && \
-    PLATFORM="linux-${ARCH}" && \
-    STABLE_VERSION=$(curl -fsSL https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/stable) && \
-    EXPECTED_HASH=$(curl -fsSL "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/${STABLE_VERSION}/manifest.json" | jq -r ".platforms[\"${PLATFORM}\"].checksum") && \
-    curl -fsSL "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/${STABLE_VERSION}/${PLATFORM}/claude" -o /home/exedev/.local/bin/claude && \
-    echo "${EXPECTED_HASH}  /home/exedev/.local/bin/claude" | sha256sum -c - && \
-    chmod +x /home/exedev/.local/bin/claude && \
-    chown -R exedev:exedev /home/exedev/.local && \
-    ln -s /home/exedev/.local/bin/claude /usr/local/bin/claude
 
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/sites-available/default
@@ -273,8 +201,7 @@ RUN tic -x - < /tmp/xterm-ghostty.terminfo && rm /tmp/xterm-ghostty.terminfo
 
 # Expose ports
 # 8000: Default web server port
-# 9999: Shelley AI assistant port
-EXPOSE 8000/tcp 9999/tcp
+EXPOSE 8000/tcp
 
 # Label for exe.dev login user
 LABEL exe.dev/login-user="exedev"
