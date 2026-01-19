@@ -1,0 +1,8 @@
+.git
+.gitignore
+*.md
+!AGENTS.md
+docker-history.txt
+.vscode
+.DS_Store
+*.log

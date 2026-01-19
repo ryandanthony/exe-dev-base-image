@@ -1,0 +1,10 @@
+[Unit]
+Description=Shelley AI Assistant Socket
+Documentation=https://exe.dev
+
+[Socket]
+ListenStream=9999
+Accept=no
+
+[Install]
+WantedBy=sockets.target
