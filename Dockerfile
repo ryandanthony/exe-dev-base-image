@@ -13,33 +13,32 @@ ARG LAUNCHPAD_BUILD_ARCH
 # Set shell for all RUN commands
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 
-# Install all necessary packages
+# Install base system packages
 RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirror://mirrors.ubuntu.com/mirrors.txt|' /etc/apt/sources.list && \
     apt-get update && \
     echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections && \
     echo 'pbuilder pbuilder/mirrorsite string http://archive.ubuntu.com/ubuntu' | debconf-set-selections && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
-      ca-certificates wget ripgrep \
-      git jq sqlite3 curl vim neovim lsof iproute2 less nginx \
-      make tree net-tools file build-essential \
-      psmisc bsdmainutils sudo socat \
-      openssh-server openssh-client \
-      iputils-ping socat netcat-openbsd \
-      libcap2-bin \
-      unzip util-linux rsync \
+      # System Services
+      systemd systemd-sysv dbus-user-session \
+      # Ubuntu Metapackages
       ubuntu-server ubuntu-standard \
-      mitmproxy \
-      systemd systemd-sysv \
-      atop btop iotop ncdu \
-      fonts-noto-color-emoji fonts-symbola \
+      # Monitoring & Diagnostics
+      lsof atop btop iotop ncdu \
+      # Core System Utilities
+      ca-certificates curl wget unzip file less tree \
+      util-linux bsdmainutils psmisc sudo libcap2-bin rsync \
+      # Networking
+      openssh-server openssh-client \
+      iproute2 net-tools iputils-ping \
+      socat netcat-openbsd mitmproxy \
+      # Containers
       docker.io docker-buildx docker-compose-v2 \
-      imagemagick ffmpeg \
-      gh \
-      dbus-user-session && \
+      && \
     apt-get remove -y pollinate ubuntu-fan && \
     setcap cap_net_raw=+ep /usr/bin/ping && \
-    fc-cache -f -v && \
-    apt-get clean
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Disable and mask unnecessary systemd services to optimize for container environment
 RUN rm /etc/systemd/system/multi-user.target.wants/console-setup.service \
@@ -102,7 +101,6 @@ RUN rm /etc/systemd/system/multi-user.target.wants/console-setup.service \
       plymouth-log.service && \
     systemctl disable \
       docker.service containerd.service getty.target systemd-logind.service \
-      nginx.service \
       console-getty.service \
       atop.service \
       getty@.service \
@@ -154,6 +152,23 @@ ENV EXEUNTU=1
 RUN mkdir -p /home/exedev /home/exedev/.config && \
     chown exedev:exedev /home/exedev /home/exedev/.config
 
+# Install development tools
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+      # Build Tools
+      build-essential make \
+      # Version Control & GitHub
+      git gh \
+      # Media Processing
+      imagemagick ffmpeg \
+      # Search & Text Processing
+      ripgrep jq \
+      # Editors
+      vim neovim \
+      && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 # Switch to exedev user
 USER exedev
 
@@ -172,32 +187,10 @@ RUN git config --global init.defaultBranch main
 USER root
 
 # Disable MOTD (message of the day) default messages
-RUN rm -rf /etc/update-motd.d/* /etc/motd && \
-    touch /home/exedev/.hushlogin && \
-    chown exedev:exedev /home/exedev/.hushlogin
-
-# Copy custom MOTD snippet
-COPY motd-snippet.bash /tmp/motd-snippet.bash
-
-# Add custom MOTD to bashrc
-RUN cat /tmp/motd-snippet.bash >> /home/exedev/.bashrc && rm /tmp/motd-snippet.bash
+RUN rm -rf /etc/update-motd.d/* /etc/motd
 
 # Copy init wrapper script
 COPY init-wrapper.sh /usr/local/bin/init
-
-# Copy nginx configuration
-COPY nginx.conf /etc/nginx/sites-available/default
-
-# Copy default index.html for nginx
-COPY index.html /var/www/html/index.html
-
-# Set permissions on nginx files
-RUN chmod 644 /var/www/html/index.html
-
-# Copy and install Ghostty terminal info
-COPY xterm-ghostty.terminfo /tmp/xterm-ghostty.terminfo
-
-RUN tic -x - < /tmp/xterm-ghostty.terminfo && rm /tmp/xterm-ghostty.terminfo
 
 # Expose ports
 # 8000: Default web server port
